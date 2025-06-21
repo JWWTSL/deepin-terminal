@@ -301,7 +301,7 @@
     <message>
         <location filename="../src/settings/settings_translation.cpp" line="25"/>
         <source>Scroll on output</source>
-        <translation>Desplazamiento en la impresión</translation>
+        <translation>Desplazamiento en la salida</translation>
     </message>
     <message>
         <location filename="../src/settings/settings_translation.cpp" line="27"/>
