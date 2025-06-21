@@ -363,7 +363,7 @@
     <message>
         <location filename="../src/settings/settings_translation.cpp" line="47"/>
         <source>Scroll</source>
-        <translation>Desplazar</translation>
+        <translation>Desplazamiento</translation>
     </message>
     <message>
         <location filename="../src/settings/settings_translation.cpp" line="49"/>
