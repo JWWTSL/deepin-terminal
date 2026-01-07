@@ -275,12 +275,12 @@ public:
     };
 
     UrlFilter();
+    void process() override;
 
 protected:
     RegExpFilter::HotSpot *newHotSpot(int, int, int, int) override;
 
 private:
-
     static const QRegExp FullUrlRegExp;
     static const QRegExp EmailAddressRegExp;
 

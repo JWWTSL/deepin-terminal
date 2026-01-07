@@ -1168,8 +1168,12 @@ void TerminalDisplay::updateImage()
 
   setScroll( _screenWindow->currentLine() , _screenWindow->lineCount() );
   //--added by qinyaning(nyq) to slove the problem of scroll init show--/
-  setScrollBarPosition(_lines > 1 && _screenWindow->lineCount() > _lines?
-                           QTermWidget::ScrollBarRight : QTermWidget::NoScrollBar);
+  // 只增不减策略：初始无滚动条，内容超过一页时显示，一旦显示不再隐藏
+  // 避免动态显隐导致的宽度震荡和内容 reflow 问题
+  if (_scrollbarLocation == QTermWidget::NoScrollBar &&
+      _lines > 1 && _screenWindow->lineCount() > _lines) {
+      setScrollBarPosition(QTermWidget::ScrollBarRight);
+  }
   //--------------------------------------------------------------------/
 
   Q_ASSERT( this->_usedLines <= this->_lines );
@@ -1328,12 +1332,12 @@ void TerminalDisplay::updateImage()
 
   _screenWindow->resetScrollCount();
   // update the parts of the display which have changed
-   //--modified and added by qinyaning(nyq) to solve When the screen zooms to 1.25 and 2.75,
-  /*the terminal interface will display colored lines. time: 2020.4.10 14:18
-   * */
-  //update(dirtyRegion);
+  // 使用 repaint() 强制同步绘制，解决超长单行快速输出时内容被吞的问题
+  if (dirtyLineCount > 0) {
+      repaint();
+  } else {
   update();
-  //-------------------------------------------------
+  }
 
   if ( _hasBlinker && !_blinkTimer->isActive()) _blinkTimer->start( TEXT_BLINK_DELAY );
   if (!_hasBlinker && _blinkTimer->isActive()) { _blinkTimer->stop(); _blinking = false; }
@@ -2664,10 +2668,15 @@ void TerminalDisplay::setSessionId(int sessionId)
 
 void TerminalDisplay::updateFilters()
 {
-    if ( !_screenWindow )
+    if (!_screenWindow)
         return;
 
+    // 延迟到下一个事件循环执行，确保 updateImage() 的 repaint 先被处理
+    QTimer::singleShot(0, this, [this]() {
+        if (_screenWindow) {
     processFilters();
+        }
+    });
 }
 
 void TerminalDisplay::updateLineProperties()

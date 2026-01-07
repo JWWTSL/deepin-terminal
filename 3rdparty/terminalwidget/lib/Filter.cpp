@@ -23,6 +23,7 @@
 
 // System
 #include <iostream>
+#include <algorithm>
 
 // Qt
 #include <QAction>
@@ -531,9 +532,146 @@ const QRegExp UrlFilter::EmailAddressRegExp(QLatin1String("\\b(\\w|\\.|-)+@(\\w|
 const QRegExp UrlFilter::CompleteUrlRegExp(QLatin1Char('(') + FullUrlRegExp.pattern() + QLatin1Char('|') +
                                            EmailAddressRegExp.pattern() + QLatin1Char(')'));
 
+namespace {
+
+// URL/邮箱 token 最大长度，防止超长文本导致性能问题
+constexpr int kMaxTokenLen = 2048;
+
+// 判断字符是否为 token 分隔符
+bool isTokenTerminator(const QChar &ch)
+{
+    if (ch.isSpace() || ch.isNull()) return true;
+    switch (ch.unicode()) {
+    case '<': case '>': case '\'': case '\"':
+    case ']': case '!': case ',': case '\n': case '\r': case '\t':
+        return true;
+    default:
+        return false;
+    }
+}
+
+// 从指定位置扩展，获取完整 token 的边界
+QPair<int, int> tokenBoundsFrom(const QString *text, int pos)
+{
+    int start = pos;
+    while (start > 0 && !isTokenTerminator(text->at(start - 1)) && (pos - start) < kMaxTokenLen)
+        start--;
+    int end = pos;
+    while (end < text->size() && !isTokenTerminator(text->at(end)) && (end - start) < kMaxTokenLen)
+        end++;
+    return qMakePair(start, end);
+}
+
+// 检查文本中是否存在有效邮箱候选（过滤 shell 提示符如 user@host$）
+bool hasValidEmailCandidate(const QString *text)
+{
+    int lastEnd = 0;
+    int atPos = text->indexOf(QLatin1Char('@'));
+    while (atPos >= 0) {
+        const auto bounds = tokenBoundsFrom(text, atPos);
+        lastEnd = qMax(bounds.second, atPos + 1);
+        if ((bounds.second - bounds.first) <= kMaxTokenLen) {
+            const QString token = text->mid(bounds.first, bounds.second - bounds.first);
+            const int localAt = token.indexOf(QLatin1Char('@'));
+            if (localAt > 0) {
+                const QString domain = token.mid(localAt + 1);
+                if (domain.size() >= 3 && domain.contains(QLatin1Char('.'))) {
+                    if (std::all_of(domain.begin(), domain.end(), [](const QChar &ch) {
+                        return ch.isLetterOrNumber() || ch == QLatin1Char('_') || ch == QLatin1Char('.') || ch == QLatin1Char('-');
+                    })) {
+                        return true;
+                    }
+                }
+            }
+        }
+        // 直接从 lastEnd 开始搜索，跳过已处理的范围
+        atPos = text->indexOf(QLatin1Char('@'), lastEnd);
+    }
+    return false;
+}
+
+} // anonymous namespace
+
 UrlFilter::UrlFilter()
 {
     setRegExp(CompleteUrlRegExp);
+}
+
+void UrlFilter::process()
+{
+    const QString *text = buffer();
+    if (!text)
+        return;
+
+    const int protoMarker = text->indexOf(QLatin1String("://"));
+    const int wwwMarker = text->indexOf(QLatin1String("www."));
+
+    // 预过滤：无 URL/邮箱标记则直接返回
+    if (protoMarker < 0 && wwwMarker < 0 && !hasValidEmailCandidate(text))
+        return;
+
+    // 验证并添加 URL 热点的 lambda
+    auto tryAddHotSpot = [this](const QString *text, int tokenStart, int tokenEnd) {
+        const int len = tokenEnd - tokenStart;
+        if (len <= 0 || len > kMaxTokenLen) return;
+        const QString token = text->mid(tokenStart, len);
+        if (!FullUrlRegExp.exactMatch(token) && !EmailAddressRegExp.exactMatch(token)) return;
+        int startLine = 0, endLine = 0, startColumn = 0, endColumn = 0;
+        getLineColumn(tokenStart, startLine, startColumn);
+        getLineColumn(tokenStart + len, endLine, endColumn);
+        RegExpFilter::HotSpot *spot = newHotSpot(startLine, startColumn, endLine, endColumn);
+        spot->setCapturedTexts(QStringList() << token);
+        addHotSpot(spot);
+    };
+
+    // 处理 "www." 候选
+    {
+        int lastEnd = 0;
+        int pos = wwwMarker;
+        while (pos >= 0) {
+            const auto bounds = tokenBoundsFrom(text, pos);
+            lastEnd = qMax(bounds.second, pos + 4);
+            tryAddHotSpot(text, bounds.first, bounds.second);
+            pos = text->indexOf(QLatin1String("www."), lastEnd);
+        }
+    }
+
+    // 处理 "://" 候选
+    {
+        int lastEnd = 0;
+        int markerPos = protoMarker;
+        while (markerPos >= 0) {
+        int schemeStart = markerPos - 1;
+        while (schemeStart >= 0) {
+            const QChar ch = text->at(schemeStart);
+                if (ch.isLetterOrNumber() || ch == QLatin1Char('+') || ch == QLatin1Char('.') || ch == QLatin1Char('-'))
+                schemeStart--;
+                else
+            break;
+        }
+        schemeStart++;
+            if (schemeStart < markerPos && text->at(schemeStart).isLetter()) {
+                const auto bounds = tokenBoundsFrom(text, schemeStart);
+                lastEnd = qMax(bounds.second, markerPos + 3);
+                tryAddHotSpot(text, bounds.first, bounds.second);
+            } else {
+                lastEnd = markerPos + 3;
+            }
+            markerPos = text->indexOf(QLatin1String("://"), lastEnd);
+        }
+    }
+
+    // 处理 "@" 候选
+    {
+        int lastEnd = 0;
+        int atPos = text->indexOf(QLatin1Char('@'));
+        while (atPos >= 0) {
+            const auto bounds = tokenBoundsFrom(text, atPos);
+            lastEnd = qMax(bounds.second, atPos + 1);
+            tryAddHotSpot(text, bounds.first, bounds.second);
+            atPos = text->indexOf(QLatin1Char('@'), lastEnd);
+        }
+    }
 }
 
 UrlFilter::HotSpot::~HotSpot()
