@@ -7,6 +7,7 @@
 #include "utils.h"
 
 #include <DApplication>
+#include <DGuiApplicationHelper>
 #include <DIconButton>
 
 #include <QIcon>
@@ -49,6 +50,13 @@ TitleBar::TitleBar(QWidget *parent) : QWidget(parent), m_layout(new QHBoxLayout(
     // daizhengwen fix bug#22927 动画出的矩形框会 -50 设置标题栏为50
     this->setFixedHeight(WIN_TITLE_BAR_HEIGHT);
 #endif
+
+    // 监听主题变化，更新标题栏背景颜色以保持与系统主题一致
+    QObject::connect(DGuiApplicationHelper::instance(), &DGuiApplicationHelper::themeTypeChanged, this, [this](){
+        DPalette pa = DGuiApplicationHelper::instance()->applicationPalette();
+        setPalette(pa);
+        update();
+    });
 }
 
 TitleBar::~TitleBar()
