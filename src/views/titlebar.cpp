@@ -7,7 +7,10 @@
 #include "utils.h"
 
 #include <DApplication>
+#include <DGuiApplicationHelper>
 #include <DIconButton>
+
+#include <QTimer>
 
 #include <QIcon>
 #include <QLabel>
@@ -37,6 +40,19 @@ TitleBar::TitleBar(QWidget *parent) : QWidget(parent), m_layout(new QHBoxLayout(
 //    this->setPalette(palette);
     this->setBackgroundRole(DPalette::Base);
     this->setAutoFillBackground(true);
+
+    // 延迟同步系统主题 palette，避免重启后首次启动时 DGuiApplicationHelper 未完成初始化
+    QTimer::singleShot(0, this, [this](){
+        DPalette pa = DGuiApplicationHelper::instance()->applicationPalette();
+        setPalette(pa);
+        update();
+    });
+    // 监听主题变化
+    QObject::connect(DGuiApplicationHelper::instance(), &DGuiApplicationHelper::themeTypeChanged, this, [this](){
+        DPalette pa = DGuiApplicationHelper::instance()->applicationPalette();
+        setPalette(pa);
+        update();
+    });
     /********************* Modify by m000714 daizhengwen End ************************/
     m_layout->setContentsMargins(0, 0, 0, 0);
 
